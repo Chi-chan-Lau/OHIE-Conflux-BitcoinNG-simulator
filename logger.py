@@ -5,9 +5,7 @@ from network import constant_decker_wattenhorf
 from constants import TX_SIZE
 
 def log_blocks(params, proposals):
-    # filename = './logs_{0}_{1}/blocks_{0}_{1}.csv'.format(params['fork_choice_rule'], params['tree_proposal_rate'])
-    filename = './logs/blocks.csv'
-    with open(filename, 'w', newline='') as csvfile:
+    with open('./logs/blocks.csv', 'w', newline='') as csvfile:
         fieldnames = ['id', 
                     'parent id', 
                     'block type',
@@ -45,10 +43,8 @@ def log_blocks(params, proposals):
                         'transactions': f'{ref_block_tx_str}'
                         })
 
-def log_txs(params, txs):
-    # filename = './logs_{0}_{1}/transactions_{0}_{1}.csv'.format(params['fork_choice_rule'], params['tree_proposal_rate'])
-    filename = './logs/transactions.csv'
-    with open(filename, 'w', newline='') as csvfile:
+def log_txs(txs):
+    with open('./logs/transactions.csv', 'w', newline='') as csvfile:
         fieldnames = ['id', 'source node', 'generated timestamp', 'complete', 
                 'main chain arrival timestamp', 
                 'finalization timestamps']
@@ -68,10 +64,8 @@ def log_txs(params, txs):
                 f'finalization timestamps':
                 f'{finalization_timestamp_str}'})
 
-def log_statistics(params, global_main_chain, proposals, txs, time_elapsed):
-    # filename = './logs_{0}_{1}/stats_{0}_{1}.csv'.format(params['fork_choice_rule'], params['tree_proposal_rate'])
-    filename = './logs/stats.csv'
-    with open(filename, 'w+') as csvfile:
+def log_statistics(params, global_main_chain, proposals, time_elapsed):
+    with open('./logs/stats.csv', 'w+') as csvfile:
         csvfile.write(json.dumps(params)+'\n')
         csvfile.write(f'Time elapsed,{time_elapsed}\n')
 
@@ -93,15 +87,27 @@ def log_statistics(params, global_main_chain, proposals, txs, time_elapsed):
         # log main chain information blocks
         num_blocks = len(list(filter(lambda proposal:
             proposal.block.block_type=='tree' or
-            proposal.block.block_type=='proposer' or
-            proposal.block.block_type=='key', proposals)))
+            proposal.block.block_type=='proposer', proposals)))
         # filter main chain to only have tree blocks
-        main_chain = list(filter(lambda block: block.block_type=='tree' or
-            block.block_type=='proposer' or block.block_type=='key',
-            global_main_chain))
-        main_chain_length = len(main_chain)
+        if (params['fork_choice_rule'] == 'OHIE'):
+            main_chain = []
+            for chain in global_main_chain:
+                main_chain += list(filter(lambda block: block.block_type=='tree' or
+                    block.block_type=='proposer',
+                    chain))
+        else:
+            main_chain = list(filter(lambda block: block.block_type=='tree' or
+                block.block_type=='proposer',
+                global_main_chain))
+        '''
+        I made a small modification on the main_chain_length
+        I do not think the genesis block should be considered
+        when calculating the number of added blocks
+        In a protocol with many chains in parallel (like OHIE)
+        there are many genesis blocks and that may cause an issue
+        '''
+        main_chain_length = len(main_chain) - params['longest_chains']
         num_orphan_blocks = num_blocks - main_chain_length 
-
         csvfile.write(f'Number of blocks,{num_blocks}\n')
         csvfile.write(f'Main chain length,{main_chain_length}\n')
         csvfile.write(f'Fraction of main blocks,{float(main_chain_length)/num_blocks}\n')
@@ -112,74 +118,11 @@ def log_statistics(params, global_main_chain, proposals, txs, time_elapsed):
         if params['fork_choice_rule']=='longest-chain':
             # These numbers can be found in https://eprint.iacr.org/2013/881.pdf
             # Expect the main chain to grow at a rate of f/(1+f*delta)
-            n_tx_finalized = sum([x.complete for x in txs])
-
             csvfile.write(f'Expected fraction of main blocks,{1.0/(1+f*delta_blocks)}\n')
             csvfile.write(f'Expected fraction of orphan blocks,{float(f*delta_blocks)/(1+f*delta_blocks)}\n')
             csvfile.write(f'Expected arrival rate,{float(f)/(1+f*delta_blocks)}\n')
             csvfile.write(f'Expected arrival latency,{1/(float(f)/(1+f*delta_blocks))}\n')
             csvfile.write(f'Expected finalization latency,{finalization_depth * float(1+f*delta_blocks)/f}\n')
-
-            # D = delta_txs*n_tx_finalized/main_chain_length
-            # T = n_tx_finalized / main_chain_length
-            # lambdah = main_chain_length/params['duration']
-            # C = 10
-
-            # R = lambdah*T/(1+lambdah*(D + T/C))
-
-            # csvfile.write(f'Block network delay D,{D}\n')
-            # csvfile.write(f'Transactions per block T,{T}\n')
-            # csvfile.write(f'Main chain growth per second lambda,{lambdah}\n')
-
-            # csvfile.write(f'Expected Throughput R,{R}\n')
-            # csvfile.write(f'Actual Throughput Rt,{Rt}\n')
-
-
-        elif params['fork_choice_rule']=='BitcoinNG':
-            # n_tx_finalized = sum([x.complete for x in txs])
-            # run_duration = params['duration']
-            # num_micro_blocks = 0
-            # num_empty_blocks = 0
-            # num_nonempty_blocks = 0
-            # for b in main_chain:
-            #     if b.block_type == 'key':
-            #         for mb in b.micro_blocks:
-            #             if len(mb.txs) == 0:
-            #                 num_empty_blocks = num_empty_blocks + 1
-            #             else:
-            #                 num_nonempty_blocks = num_nonempty_blocks + 1
-            #         num_micro_blocks = num_micro_blocks + len(b.micro_blocks)
-
-            # D = delta_txs*n_tx_finalized/num_nonempty_blocks
-            # T = n_tx_finalized / num_nonempty_blocks
-            # lambdah = main_chain_length/run_duration
-            # C = 10
-
-            # R1 = lambdah*T/(1+lambdah*(D + T/C))
-            # R2 = (n_tx_finalized/run_duration)/(1+num_nonempty_blocks/run_duration*D+(n_tx_finalized/run_duration)/C)
-
-            # csvfile.write(f'Microblocks total,{num_micro_blocks}\n')
-            # csvfile.write(f'Empty microblocks,{num_empty_blocks}\n')
-            # csvfile.write(f'Non-empty microblocks,{num_nonempty_blocks}\n')
-
-            # csvfile.write(f'Transactions total,{n_tx_finalized}\n')
-            # csvfile.write(f'Transactions fraction,{n_tx_finalized/len(txs)}\n')
-            # csvfile.write(f'Transactions per second,{n_tx_finalized/run_duration}\n')
-            # csvfile.write(f'Transactions per non-empty microblock,{n_tx_finalized/num_nonempty_blocks}\n')
-
-            csvfile.write(f'Expected fraction of main blocks,{1.0/(1+f*delta_blocks)}\n')
-            csvfile.write(f'Expected fraction of orphan blocks,{float(f*delta_blocks)/(1+f*delta_blocks)}\n')
-            csvfile.write(f'Expected arrival rate,{float(f)/(1+f*delta_blocks)}\n')
-            csvfile.write(f'Expected arrival latency,{1/(float(f)/(1+f*delta_blocks))}\n')
-            csvfile.write(f'Expected finalization latency,{finalization_depth * float(1+f*delta_blocks)/f}\n')
-
-            # csvfile.write(f'Block network delay D,{D}\n')
-            # csvfile.write(f'Transactions per block T,{T}\n')
-            # csvfile.write(f'Main chain growth per second lambda,{lambdah}\n')
-
-            # csvfile.write(f'Throughput R,{R1}\n')
-            # csvfile.write(f'Throughput R2,{R2}\n')
-
         elif params['fork_choice_rule']=='GHOST':
             csvfile.write(f'Expected fraction of main blocks,{1.0/(1+2.0*f*delta_blocks)}\n')
             csvfile.write(f'Expected fraction of orphan blocks,{float(2.0*f*delta_blocks)/(1+2.0*f*delta_blocks)}\n')
@@ -187,7 +130,7 @@ def log_statistics(params, global_main_chain, proposals, txs, time_elapsed):
             csvfile.write(f'Expected arrival latency,{1/(float(f)/(1+2.0*f*delta_blocks))}\n')
             csvfile.write(f'Expected finalization latency,{finalization_depth * float(1+f*2.0*delta_blocks)/f}\n')
 
-def draw_blocktree(params, proposals, main_chain):
+def draw_blocktree(params, proposals, common_blocks):
     g = Graph()
     color_vp = g.new_vertex_property('double')
     shape_vp = g.new_vertex_property('int')
@@ -198,10 +141,26 @@ def draw_blocktree(params, proposals, main_chain):
     # maps block to vertex
     block_to_vertices = {}
 
-    genesis = g.add_vertex()
-    color_vp[genesis] = 0
-    shape_vp[genesis] = 0
-    text_vp[genesis] = 'Genesis'
+    if params['fork_choice_rule']=='OHIE':
+        # OHIE is formed by chains with distinct genesis blocks
+        genesis = []
+        main_chain = []
+        for i in range(params['longest_chains']):
+            gen_block = g.add_vertex()
+            color_vp[gen_block] = 0
+            shape_vp[gen_block] = 0
+            text_vp[gen_block] = 'Genesis' + str(i)
+            genesis.append(gen_block)
+            # store all the blocks from distinct 
+            # chains together for graph purpose
+            main_chain += common_blocks[i]
+    else:
+        # there is just one single chain
+        main_chain = common_blocks
+        genesis = g.add_vertex()
+        color_vp[genesis] = 0
+        shape_vp[genesis] = 0
+        text_vp[genesis] = 'Genesis'
 
     if params['fork_choice_rule']=='Prism':
         main_chain = list(filter(lambda block: block.block_type!='voter', main_chain))
@@ -211,7 +170,7 @@ def draw_blocktree(params, proposals, main_chain):
 
     main_chain_ids = list(map(lambda block: block.id, main_chain))
 
-    type_filter = lambda proposal: proposal.block.block_type=='tree' or proposal.block.block_type=='proposer' or proposal.block.block_type=='key' #or proposal.block.block_type == 'micro'
+    type_filter = lambda proposal: proposal.block.block_type=='tree' or proposal.block.block_type=='proposer'
     added_filter = lambda proposal: not proposal.added 
 
     filtered_proposals = list(filter(type_filter, proposals))
@@ -237,6 +196,7 @@ def draw_blocktree(params, proposals, main_chain):
                     g.add_edge(v, ref_vertex)
             if params['fork_choice_rule']=='Prism':
                 # if Prism, main chain chooses one from each depth 
+                    # if Prism, main chain chooses one from each depth 
                 if block.id in main_chain_ids:
                     g.add_edge(added_parent, v)
                     added_parent = v
@@ -246,6 +206,13 @@ def draw_blocktree(params, proposals, main_chain):
                     w = block_to_vertices[block.parent_id]
                     g.add_edge(v, w)
                     proposal.added = True
+                # check all genesis blocks in OHIE
+                elif params['fork_choice_rule']=='OHIE':
+                    for gen_block in genesis:
+                        if block.parent_id==text_vp[gen_block]:
+                            g.add_edge(v, gen_block)
+                            proposal.added = True
+                            break
                 elif block.parent_id=='Genesis':
                     g.add_edge(v, genesis)
                     proposal.added = True
@@ -260,8 +227,7 @@ def draw_blocktree(params, proposals, main_chain):
             vertex_text=text_vp,
             vertex_shape=shape_vp,
             vertex_fill_color =color_vp,
-            vertex_font_size=15, output_size=(2000, 2000),
-            edge_pen_width=5.0,
+            vertex_font_size=15, output_size=(4200, 4200),
+            edge_pen_width=1.0,
             output="./logs/blocktree.png")
-
 
